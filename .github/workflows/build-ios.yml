@@ -1,0 +1,68 @@
+name: Build iOS IPA (Unsigned)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  build-ios:
+    name: Build Unsigned IPA
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build web assets
+        run: npm run build
+
+      - name: Sync Capacitor iOS project
+        run: npx cap sync ios
+
+      - name: Build unsigned iOS app
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build/ios \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            clean build
+
+      - name: Package Pitch.ipa
+        run: |
+          set -euo pipefail
+          APP_PATH="build/ios/Build/Products/Release-iphoneos/App.app"
+          if [ ! -d "$APP_PATH" ]; then
+            echo "Error: App.app not found at $APP_PATH"
+            find build/ios -maxdepth 5
+            exit 1
+          fi
+          mkdir -p build/ipa/Payload
+          cp -R "$APP_PATH" build/ipa/Payload/
+          cd build/ipa
+          zip -r ../../Pitch.ipa Payload
+
+      - name: Upload Pitch.ipa artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Pitch-iOS-unsigned
+          path: Pitch.ipa
+          retention-days: 30
